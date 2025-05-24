@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Audio Transcription & Recorder</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+
+  body {
+    font-family: 'Poppins', sans-serif;
+    background:rgb(246, 246, 243);
+    color: #333;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+    min-height: 100vh;
+  }
+
+  h1 {
+    font-weight: 600;
+    font-size: 2.2rem;
+    margin-bottom: 15px;
+    color: #4a4a4a;
+  }
+  h2 {
+    font-weight: 200;
+    font-size: 1.3rem;
+    
+   
+    margin-bottom: 20px;
+    color:rgb(17, 16, 16);
+  }
+
+
+  #controls {
+    margin-bottom: 25px;
+  }
+
+  button {
+    background: #6c63ff;
+    color: white;
+    border: none;
+    padding: 12px 22px;
+    margin-right: 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 15px;
+    box-shadow: 0 4px 10px rgba(108, 99, 255, 0.3);
+    transition: background-color 0.25s ease;
+  }
+  button:disabled {
+    background: #c3c2f2;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+  button:hover:not(:disabled) {
+    background: #5848e5;
+  }
+
+  #drop-zone {
+    border: 2.5px dashed #b3aedf;
+    border-radius: 14px;
+    width: 360px;
+    height: 140px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: #9b99a6;
+    font-weight: 500;
+    font-size: 16px;
+    margin-bottom: 18px;
+    transition: background-color 0.3s, border-color 0.3s;
+  }
+  #drop-zone.dragover {
+    background-color: #e3e2f8;
+    border-color: #6c63ff;
+    color: #6c63ff;
+  }
+
+  #file-input {
+    display: none;
+  }
+
+  #status {
+    max-width: 720px;
+    min-height: 80px;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 4px 15px rgba(108, 99, 255, 0.15);
+    padding: 20px;
+    white-space: pre-wrap;
+    color: #4a4a4a;
+    font-weight: 500;
+    font-size: 15px;
+    user-select: text;
+  }
+  
+</style>
+</head>
+<body>
+
+ <h1>Summariser</h1>
+ <h2>Get text and summaries for your audio files</h2>
+
+ <div id="controls">
+  <button id="start-record">Start Mic</button>
+  <button id="stop-record" disabled>Stop Mic</button>
+  <button id="browse-btn">Browse Files</button>
+ </div>
+
+ <div id="drop-zone">Drag & drop your audio file here</div>
+ <input type="file" id="file-input" accept="audio/*" />
+
+ <div id="status">No file uploaded or recorded yet.</div>
+
+ <!-- Editor & Summary Section -->
+ <div id="editor-section" style="display:none; width: 100%; max-width: 720px; margin-top: 20px;">
+  <label for="transcription-box"><strong>Edit Transcription:</strong></label>
+  <textarea id="transcription-box" rows="8" style="width: 100%; padding: 12px; border-radius: 8px; font-size: 15px;"></textarea>
+  
+  <br><br>
+  <button id="summarize-btn">Summarise</button>
+  <button id="download-btn" style="display:none; background: #00b894;">Download Result</button>
+
+  <!-- Summary box, appears after summarization -->
+  <div id="summary-box" style="margin-top: 20px; display: none;">
+    <h3>Summary</h3>
+    <div id="summary-content" style="white-space: pre-wrap;"></div>
+
+    <div style="margin-top: 20px; display: flex; align-items: center; gap: 10px;">
+      <label for="voiceSelect"><strong>Read Aloud in:</strong></label>
+      <select id="voiceSelect" style="padding: 5px; border-radius: 5px;"></select>
+      <button id="readAloudBtn">🔊 Read Aloud</button>
+    </div>
+  </div>
+ </div>
+
+
+
+
+ <script>
+  const startBtn = document.getElementById('start-record');
+  const stopBtn = document.getElementById('stop-record');
+  const browseBtn = document.getElementById('browse-btn');
+  const fileInput = document.getElementById('file-input');
+  const dropZone = document.getElementById('drop-zone');
+  const statusDiv = document.getElementById('status');
+
+  let mediaRecorder;
+  let audioChunks = [];
+
+  // Mic recording handlers
+  startBtn.onclick = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('Mic not supported in this browser.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        audioChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        statusDiv.textContent = 'Mic recording stopped. Uploading for transcription...';
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64Audio = reader.result.split(',')[1];
+          sendAudioToBackend(base64Audio);
+        };
+        reader.readAsDataURL(audioBlob);
+      };
+
+      mediaRecorder.start();
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      statusDiv.textContent = 'Mic recording started... Speak now.';
+    } catch (err) {
+      alert('Error accessing mic: ' + err.message);
+    }
+  };
+
+  stopBtn.onclick = () => {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    }
+  };
+
+  // Drag & drop handlers
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('dragover');
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      handleFile(files[0]);
+    }
+  });
+
+  // Browse file button
+  browseBtn.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) {
+      handleFile(fileInput.files[0]);
+    }
+  });
+
+  // Handle selected or dropped file
+  function handleFile(file) {
+    if (!file.type.startsWith('audio/')) {
+      statusDiv.textContent = 'Please upload a valid audio file.';
+      return;
+    }
+    statusDiv.textContent = `Uploading and processing "${file.name}"...`;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64Audio = reader.result.split(',')[1];
+      sendAudioToBackend(base64Audio);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // Send base64 audio to backend
+  function sendAudioToBackend(base64Audio) {
+    fetch('/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audio: base64Audio }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.error) {
+          statusDiv.textContent = 'Error: ' + data.error;
+        } else {
+          statusDiv.textContent = `Transcription:\n${data.text}\n\nSummary:\n${data.summary}`;
+        }
+      })
+      .catch((err) => {
+        statusDiv.textContent = 'Fetch error: ' + err.message;
+      });
+  }
+  const editorSection = document.getElementById('editor-section');
+ const transcriptionBox = document.getElementById('transcription-box');
+ const summarizeBtn = document.getElementById('summarize-btn');
+  downloadBtn = document.getElementById('download-btn');
+
+ let latestTranscription = '';
+ let latestSummary = '';
+
+ // Modify original sendAudioToBackend to stop after transcription
+ function sendAudioToBackend(base64Audio) {
+  fetch('/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ audio: base64Audio }),
+  })
+    .then((res) => res.json())
+    .then((data) => {
+      if (data.error) {
+        statusDiv.textContent = 'Error: ' + data.error;
+      } else {
+        latestTranscription = data.text;
+        transcriptionBox.value = latestTranscription;
+        editorSection.style.display = 'block';
+        statusDiv.textContent = "Transcription complete. You can edit it below and click 'Summarise'.";
+      }
+    })
+    .catch((err) => {
+      statusDiv.textContent = 'Fetch error: ' + err.message;
+    });
+ }
+
+ summarizeBtn.onclick = () => {
+  const userEditedText = transcriptionBox.value;
+  statusDiv.textContent = 'Summarising...';
+  fetch('/summarise', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: userEditedText }),
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        statusDiv.textContent = 'Error: ' + data.error;
+      } else {
+        latestSummary = data.summary;
+        statusDiv.textContent = `Summary:\n${latestSummary}`;
+        downloadBtn.style.display = 'inline-block';
+      }
+    })
+    .catch(err => {
+      statusDiv.textContent = 'Summary fetch error: ' + err.message;
+    });
+ };
+
+ downloadBtn.onclick = () => {
+  const blob = new Blob([
+    `Audio Text:\n${transcriptionBox.value}\n\nSummary:\n${latestSummary}`
+  ], { type: 'text/plain' });
+
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'transcription_summary.txt';
+  link.click();
+ };
+ const readAloudBtn = document.getElementById("readAloudBtn");
+ const langSelect = document.getElementById("langSelect");
+
+ readAloudBtn.onclick = async () => {
+  const selectedLang = langSelect.value;
+  const textToTranslate = latestSummary || statusDiv.textContent;
+
+  // 🔁 Translate via backend
+  const response = await fetch("/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: textToTranslate, target_lang: selectedLang }),
+  });
+
+  const { translated_text } = await response.json();
+
+  const utterance = new SpeechSynthesisUtterance(translated_text);
+
+  // Pick a voice matching the language (approximate)
+  const voices = speechSynthesis.getVoices();
+  utterance.voice = voices.find(v => v.lang.startsWith(selectedLang)) || voices[0];
+
+  speechSynthesis.cancel(); // kill any current speech
+  speechSynthesis.speak(utterance);
+ };
+
+
+ </script>
+
+</body>
+</html>
